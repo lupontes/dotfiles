@@ -3,6 +3,15 @@ set -e
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# --- GitHub token (used for cloning private repos and obsidian-git) ---
+if [ -z "$GITHUB_TOKEN" ]; then
+  echo "GitHub Personal Access Token (repo scope required):"
+  read -r -s GITHUB_TOKEN
+  echo ""
+fi
+
+# --- Helpers ---
+
 link() {
   local src="$1"
   local dest="$2"
@@ -31,16 +40,22 @@ flatpak_install() {
   fi
 }
 
-clone_vault() {
+clone_private() {
   local repo="$1"
   local dest="$2"
   if [ ! -d "$dest/.git" ]; then
-    git clone "https://github.com/lupontes/$repo.git" "$dest"
+    git clone "https://lupontes:${GITHUB_TOKEN}@github.com/lupontes/$repo.git" "$dest"
     echo "cloned: $repo"
   else
     echo "already exists: $dest"
   fi
 }
+
+# --- Git global config ---
+git config --global user.name  "Luciano Pontes"
+git config --global user.email "luciano.pontes@embrapa.br"
+git config --global init.defaultBranch main
+echo "git: global config set"
 
 # --- Claude Code ---
 link "$DOTFILES_DIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
@@ -48,7 +63,7 @@ link "$DOTFILES_DIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 MEMORY_DIR="$HOME/.claude/projects/-home-lupontes/memory"
 if [ ! -d "$MEMORY_DIR/.git" ]; then
   mkdir -p "$(dirname "$MEMORY_DIR")"
-  git clone https://github.com/lupontes/claude-memory.git "$MEMORY_DIR"
+  git clone "https://lupontes:${GITHUB_TOKEN}@github.com/lupontes/claude-memory.git" "$MEMORY_DIR"
   echo "cloned: claude-memory"
 else
   echo "already exists: claude-memory"
@@ -57,7 +72,7 @@ fi
 # --- Obsidian ---
 flatpak_install "md.obsidian.Obsidian" "Obsidian"
 
-clone_vault "brain" "$HOME/brain"
+clone_private "brain" "$HOME/brain"
 
 OBSIDIAN_BRAIN="$HOME/brain/.obsidian"
 mkdir -p "$OBSIDIAN_BRAIN/plugins"
@@ -68,9 +83,6 @@ link "$DOTFILES_DIR/obsidian/brain/plugins/obsidian-git" "$OBSIDIAN_BRAIN/plugin
 
 OBSIDIAN_GIT_DATA="$OBSIDIAN_BRAIN/plugins/obsidian-git/data.json"
 if [ ! -f "$OBSIDIAN_GIT_DATA" ]; then
-  echo ""
-  echo "GitHub token for obsidian-git (repo scope required):"
-  read -r -s GITHUB_TOKEN
   cat > "$OBSIDIAN_GIT_DATA" << ENDJSON
 {
   "commitMessage": "vault backup: {{date}}",
