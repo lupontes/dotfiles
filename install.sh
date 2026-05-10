@@ -57,22 +57,14 @@ fi
 # --- Obsidian ---
 flatpak_install "md.obsidian.Obsidian" "Obsidian"
 
-clone_vault "second-brain"    "$HOME/second brain"
-clone_vault "obsidian-vault"  "$HOME/Documentos/Obsidian Vault"
+clone_vault "brain" "$HOME/brain"
 
-OBSIDIAN_SB="$HOME/second brain/.obsidian"
-mkdir -p "$OBSIDIAN_SB/plugins"
-for f in appearance.json app.json core-plugins.json graph.json community-plugins.json; do
-  link "$DOTFILES_DIR/obsidian/second-brain/$f" "$OBSIDIAN_SB/$f"
-done
-link "$DOTFILES_DIR/obsidian/obsidian-vault/plugins/obsidian-git" "$OBSIDIAN_SB/plugins/obsidian-git"
-
-OBSIDIAN_OV="$HOME/Documentos/Obsidian Vault/.obsidian"
-mkdir -p "$OBSIDIAN_OV/plugins"
+OBSIDIAN_BRAIN="$HOME/brain/.obsidian"
+mkdir -p "$OBSIDIAN_BRAIN/plugins"
 for f in appearance.json app.json community-plugins.json core-plugins.json graph.json; do
-  link "$DOTFILES_DIR/obsidian/obsidian-vault/$f" "$OBSIDIAN_OV/$f"
+  link "$DOTFILES_DIR/obsidian/brain/$f" "$OBSIDIAN_BRAIN/$f"
 done
-link "$DOTFILES_DIR/obsidian/obsidian-vault/plugins/obsidian-git" "$OBSIDIAN_OV/plugins/obsidian-git"
+link "$DOTFILES_DIR/obsidian/brain/plugins/obsidian-git" "$OBSIDIAN_BRAIN/plugins/obsidian-git"
 
 echo ""
 echo "dotfiles installed successfully."
