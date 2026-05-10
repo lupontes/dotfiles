@@ -66,5 +66,38 @@ for f in appearance.json app.json community-plugins.json core-plugins.json graph
 done
 link "$DOTFILES_DIR/obsidian/brain/plugins/obsidian-git" "$OBSIDIAN_BRAIN/plugins/obsidian-git"
 
+OBSIDIAN_GIT_DATA="$OBSIDIAN_BRAIN/plugins/obsidian-git/data.json"
+if [ ! -f "$OBSIDIAN_GIT_DATA" ]; then
+  echo ""
+  echo "GitHub token for obsidian-git (repo scope required):"
+  read -r -s GITHUB_TOKEN
+  cat > "$OBSIDIAN_GIT_DATA" << ENDJSON
+{
+  "commitMessage": "vault backup: {{date}}",
+  "autoSaveInterval": 10,
+  "autoPushInterval": 10,
+  "syncMethod": "merge",
+  "pullBeforePush": true,
+  "disablePopups": false,
+  "listChangedFilesInMessageBody": false,
+  "showStatusBar": true,
+  "updateSubmodules": false,
+  "mergeOnCheckout": true,
+  "customMessageOnAutoBackup": false,
+  "autoBackupAfterFileChange": false,
+  "treeStructure": false,
+  "refreshSourceControl": true,
+  "basePath": "",
+  "differentIntervalCommitAndPush": false,
+  "changedFilesInStatusBar": false,
+  "username": "lupontes",
+  "password": "$GITHUB_TOKEN"
+}
+ENDJSON
+  echo "obsidian-git: data.json created"
+else
+  echo "already exists: obsidian-git/data.json"
+fi
+
 echo ""
 echo "dotfiles installed successfully."
