@@ -31,6 +31,17 @@ flatpak_install() {
   fi
 }
 
+clone_vault() {
+  local repo="$1"
+  local dest="$2"
+  if [ ! -d "$dest/.git" ]; then
+    git clone "https://github.com/lupontes/$repo.git" "$dest"
+    echo "cloned: $repo"
+  else
+    echo "already exists: $dest"
+  fi
+}
+
 # --- Claude Code ---
 link "$DOTFILES_DIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 
@@ -46,11 +57,15 @@ fi
 # --- Obsidian ---
 flatpak_install "md.obsidian.Obsidian" "Obsidian"
 
+clone_vault "second-brain"    "$HOME/second brain"
+clone_vault "obsidian-vault"  "$HOME/Documentos/Obsidian Vault"
+
 OBSIDIAN_SB="$HOME/second brain/.obsidian"
-mkdir -p "$OBSIDIAN_SB"
-for f in appearance.json app.json core-plugins.json graph.json; do
+mkdir -p "$OBSIDIAN_SB/plugins"
+for f in appearance.json app.json core-plugins.json graph.json community-plugins.json; do
   link "$DOTFILES_DIR/obsidian/second-brain/$f" "$OBSIDIAN_SB/$f"
 done
+link "$DOTFILES_DIR/obsidian/obsidian-vault/plugins/obsidian-git" "$OBSIDIAN_SB/plugins/obsidian-git"
 
 OBSIDIAN_OV="$HOME/Documentos/Obsidian Vault/.obsidian"
 mkdir -p "$OBSIDIAN_OV/plugins"
