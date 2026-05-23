@@ -22,6 +22,30 @@ These are personal preferences that apply to every project I work on.
 - Prefer unit tests for isolated logic and integration tests for system boundaries.
 - Never mock what you can test with a real implementation.
 
+## Git Branching Strategy
+
+Always follow this GitFlow by default across all projects. Suggest deviations only when the user explicitly requests them (e.g., "skip to alpha").
+
+```
+feat/* / fix/* / refact/* / chore/*
+        ↓
+      develop    ← integration, merge via reviewed PR
+        ↓
+      alpha      ← internal team tests
+        ↓
+       beta      ← selected user tests
+        ↓
+     release     ← sign-off / UAT, critical fixes only
+        ↓
+       main      ← production, version tag required
+```
+
+- Never commit directly to `main`, `release`, `beta`, `alpha`, or `develop`.
+- All work happens in short-lived branches (`feat/*`, `fix/*`, `refact/*`, `chore/*`).
+- Hotfix in production: `fix/*` → `main` + cherry-pick back down to `develop`.
+- If the project has only some of these branches, apply the same directional flow with what exists.
+- If the user asks to skip a stage, accept it explicitly and adapt — but always mention the safe path first.
+
 ## Git Commits
 
 - Always follow the Conventional Commits format:
