@@ -17,7 +17,15 @@ link() {
   local dest="$2"
   mkdir -p "$(dirname "$dest")"
   if [ -L "$dest" ]; then
-    echo "already linked: $dest"
+    if [ "$(readlink "$dest")" = "$src" ]; then
+      echo "already linked: $dest"
+      return
+    fi
+    echo "updating stale symlink: $dest"
+    rm "$dest"
+    ln -s "$src" "$dest"
+    echo "linked: $dest"
+    return
   elif [ -e "$dest" ]; then
     echo "backing up: $dest -> $dest.bak"
     mv "$dest" "$dest.bak"
