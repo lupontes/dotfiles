@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Bootstraps a fresh Linux workstation to match the reference setup.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   bash install.sh              # full setup (packages + configs + repos)
+#   SKIP_PACKAGES=1 bash install.sh   # configs + repos only
+#   SKIP_REPOS=1     bash install.sh   # packages + configs only
 set -e
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,12 +16,12 @@ if [ -z "$GITHUB_TOKEN" ]; then
   read -r -s GITHUB_TOKEN
   echo ""
 fi
+export GITHUB_TOKEN
 
 # --- Helpers ---
 
 link() {
-  local src="$1"
-  local dest="$2"
+  local src="$1" dest="$2"
   mkdir -p "$(dirname "$dest")"
   if [ -L "$dest" ]; then
     echo "already linked: $dest"
@@ -30,8 +37,7 @@ link() {
 }
 
 flatpak_install() {
-  local app_id="$1"
-  local name="$2"
+  local app_id="$1" name="$2"
   if flatpak info "$app_id" &>/dev/null; then
     echo "already installed: $name"
   else
@@ -40,26 +46,42 @@ flatpak_install() {
   fi
 }
 
-clone_private() {
-  local repo="$1"
-  local dest="$2"
-  if [ ! -d "$dest/.git" ]; then
-    git clone "https://lupontes:${GITHUB_TOKEN}@github.com/lupontes/$repo.git" "$dest"
-    echo "cloned: $repo"
-  else
-    echo "already exists: $dest"
-  fi
-}
+# ============================================================
+# 1. System packages and dev tools
+# ============================================================
+if [ -z "$SKIP_PACKAGES" ]; then
+  bash "$DOTFILES_DIR/packages.sh"
+else
+  echo "SKIP_PACKAGES set — skipping system packages"
+fi
 
-# --- Git global config ---
-git config --global user.name  "Luciano Pontes"
-git config --global user.email "luciano.pontes@embrapa.br"
-git config --global init.defaultBranch main
-echo "git: global config set"
+# ============================================================
+# 2. Shell + Git config
+# ============================================================
+# .bashrc managed block (idempotent: only appended once)
+if ! grep -q "dotfiles managed block" "$HOME/.bashrc" 2>/dev/null; then
+  cat "$DOTFILES_DIR/shell/bashrc.append.sh" >> "$HOME/.bashrc"
+  echo "bashrc: managed block appended"
+else
+  echo "already present: bashrc managed block"
+fi
 
-# --- Claude Code ---
+link "$DOTFILES_DIR/git/gitconfig" "$HOME/.gitconfig"
+
+# ============================================================
+# 3. Claude Code
+# ============================================================
 link "$DOTFILES_DIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 
+# settings.json is generated (not symlinked) so the live token never lands in git.
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+mkdir -p "$HOME/.claude"
+sed -e "s|__GITHUB_TOKEN__|${GITHUB_TOKEN}|g" \
+    -e "s|__HOME__|${HOME}|g" \
+    "$DOTFILES_DIR/claude/settings.template.json" > "$CLAUDE_SETTINGS"
+echo "claude: settings.json generated from template"
+
+# claude-memory repo into the Claude memory directory
 MEMORY_DIR="$HOME/.claude/projects/-home-lupontes/memory"
 if [ ! -d "$MEMORY_DIR/.git" ]; then
   mkdir -p "$(dirname "$MEMORY_DIR")"
@@ -69,10 +91,17 @@ else
   echo "already exists: claude-memory"
 fi
 
-# --- Obsidian ---
+# ============================================================
+# 4. Obsidian
+# ============================================================
 flatpak_install "md.obsidian.Obsidian" "Obsidian"
 
-clone_private "brain" "$HOME/brain"
+if [ ! -d "$HOME/brain/.git" ]; then
+  git clone "https://lupontes:${GITHUB_TOKEN}@github.com/lupontes/brain.git" "$HOME/brain"
+  echo "cloned: brain"
+else
+  echo "already exists: $HOME/brain"
+fi
 
 OBSIDIAN_BRAIN="$HOME/brain/.obsidian"
 mkdir -p "$OBSIDIAN_BRAIN/plugins"
@@ -111,5 +140,15 @@ else
   echo "already exists: obsidian-git/data.json"
 fi
 
+# ============================================================
+# 5. Project repositories
+# ============================================================
+if [ -z "$SKIP_REPOS" ]; then
+  bash "$DOTFILES_DIR/repos.sh"
+else
+  echo "SKIP_REPOS set — skipping project repos"
+fi
+
 echo ""
 echo "dotfiles installed successfully."
+echo "NOTE: log out/in (or 'newgrp docker') so the docker group and nvm take effect."

@@ -1,0 +1,3 @@
+# Never commit a generated settings.json with a real token —
+# only claude/settings.template.json (placeholders) is versioned.
+claude/settings.json

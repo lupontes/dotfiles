@@ -1,0 +1,9 @@
+[user]
+	name = Luciano Pontes
+	email = luciano.pontes@embrapa.br
+[diff "word"]
+	textconv = unzip -ca
+[init]
+	defaultBranch = main
+[credential]
+	helper = store
