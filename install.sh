@@ -63,6 +63,7 @@ clone_private() {
 git config --global user.name  "Luciano Pontes"
 git config --global user.email "luciano.pontes@embrapa.br"
 git config --global init.defaultBranch main
+git config --global core.excludesfile "$DOTFILES_DIR/git/gitignore_global"
 echo "git: global config set"
 
 # --- Claude Code ---
