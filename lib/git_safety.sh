@@ -29,14 +29,15 @@ git_scan_root() {
   done
 }
 
-# 0 (needs action) if dirty>0 OR ahead>0.
+# 0 (needs action) if dirty>0 OR ahead>0 OR missing upstream.
 git_needs_action() {
   local state="$1"
   [ "$state" = "NOT_GIT" ] && return 1
-  local dirty ahead
+  local dirty ahead upstream
   dirty=$(echo "$state" | cut -f2)
   ahead=$(echo "$state" | cut -f3)
-  { [ "${dirty:-0}" -gt 0 ] || [ "${ahead:-0}" -gt 0 ]; }
+  upstream=$(echo "$state" | cut -f4)
+  { [ "${dirty:-0}" -gt 0 ] || [ "${ahead:-0}" -gt 0 ] || [ "${upstream:-1}" -eq 0 ]; }
 }
 
 git_safety_report() {
@@ -57,9 +58,11 @@ git_safety_report() {
 
 # Interactive; exercised live, not in unit tests.
 git_safety_interactive() {
-  local root="$1" line name dir state msg
-  while IFS= read -r line; do
-    name=$(echo "$line" | cut -f1); state=$(echo "$line" | cut -f2-)
+  local root="$1"
+  local lines=() line name dir state msg
+  mapfile -t lines < <(git_scan_root "$root")
+  for line in "${lines[@]}"; do
+    name=$(cut -f1 <<< "$line"); state=$(cut -f2- <<< "$line")
     dir="$root/$name"
     [ "$state" = "NOT_GIT" ] && continue
     git_needs_action "$state" || continue
@@ -75,5 +78,5 @@ git_safety_interactive() {
         git -C "$dir" push -u origin "$(git -C "$dir" rev-parse --abbrev-ref HEAD)"
       fi
     fi
-  done < <(git_scan_root "$root")
+  done
 }
