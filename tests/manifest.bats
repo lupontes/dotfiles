@@ -25,3 +25,7 @@ teardown() { teardown_sandbox; }
   manifest_build > "$HOME/m.json"
   [ "$(manifest_get "$HOME/m.json" '.claude_mem.corpus_remap.git')" = "repo" ]
 }
+@test "_ver captures stderr output" {
+  result=$(_ver bash -c 'echo v1.2 >&2')
+  [ "$result" = "v1.2" ]
+}

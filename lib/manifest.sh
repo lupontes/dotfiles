@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build/read the migration manifest. Requires common.sh sourced first.
 
-_ver() { command -v "$1" >/dev/null 2>&1 && "$@" 2>/dev/null | head -n1 || echo ""; }
+_ver() { command -v "$1" >/dev/null 2>&1 && "$@" 2>&1 | head -n1 || echo ""; }
 
 manifest_build() {
   local settings="$HOME/.claude/settings.json"
