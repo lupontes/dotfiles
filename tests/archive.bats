@@ -25,3 +25,17 @@ teardown() { teardown_sandbox; }
   archive_unpack "$HOME/out.age" "$HOME/dest"
   [ "$(cat "$HOME/dest/git/proj/main.c")" = "code" ]
 }
+
+@test "pack fails when a listed source path is missing" {
+  printf '.claude\nno-such-path\n' > "$HOME/list.txt"
+  run archive_pack "$HOME/list.txt" "$HOME/out.age"
+  [ "$status" -ne 0 ]
+}
+
+@test "unpack fails on wrong identity" {
+  archive_pack "$HOME/list.txt" "$HOME/out.age"
+  age-keygen -o "$HOME/wrong.age" 2>"$HOME/wrong-pub.txt"
+  export CLAUDE_BACKUP_AGE_IDENTITY="$HOME/wrong.age"
+  run archive_unpack "$HOME/out.age" "$HOME/dest"
+  [ "$status" -ne 0 ]
+}

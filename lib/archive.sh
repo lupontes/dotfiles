@@ -23,6 +23,10 @@ archive_pack() {
   tar -C "$HOME" -cf - --files-from="$list" \
     | zstd -q -19 -T0 \
     | _age_encrypt > "$out"
+  local st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" -eq 0 ] || die "archive pack failed: tar exited ${st[0]}"
+  [ "${st[1]}" -eq 0 ] || die "archive pack failed: zstd exited ${st[1]}"
+  [ "${st[2]}" -eq 0 ] || die "archive pack failed: age exited ${st[2]}"
   [ -s "$out" ] || die "archive is empty: $out"
   log "archive written: $out"
 }
@@ -32,6 +36,10 @@ archive_unpack() {
   require_cmd tar zstd age
   mkdir -p "$dest"
   _age_decrypt < "$in" | zstd -d -q | tar -C "$dest" -xf -
+  local st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" -eq 0 ] || die "archive unpack failed: age exited ${st[0]}"
+  [ "${st[1]}" -eq 0 ] || die "archive unpack failed: zstd exited ${st[1]}"
+  [ "${st[2]}" -eq 0 ] || die "archive unpack failed: tar exited ${st[2]}"
   log "archive extracted into: $dest"
 }
 
