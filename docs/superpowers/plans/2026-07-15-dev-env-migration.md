@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the tooling in the `dotfiles` repo that backs up workstation `lupontes` into one encrypted archive and restores it fully onto a fresh Ubuntu Desktop, with projects remapped `~/git`→`~/repo`, Claude Code + plugins + claude-mem (remote, port 443) working, and Mimo Code reinstalled.
+**Goal:** Build the tooling in the `dotfiles` repo that backs up workstation `lupontes` into one plaintext archive and restores it fully onto a fresh Ubuntu Desktop, with projects remapped `~/git`→`~/repo`, Claude Code + plugins + claude-mem (remote, port 443) working, and Mimo Code reinstalled.
 
-**Architecture:** Plain POSIX-ish bash, one orchestrator per direction (`backup.sh`, `restore.sh`) delegating to focused modules in `lib/`. Existing `packages.sh`/`repos.sh` are extended, not duplicated. Every module is sourced (functions, no side effects at load) so it is unit-testable with `bats`. Crypto is a thin, injectable wrapper so tests use an `age` keypair while production uses an interactive passphrase.
+**Architecture:** Plain POSIX-ish bash, one orchestrator per direction (`backup.sh`, `restore.sh`) delegating to focused modules in `lib/`. Existing `packages.sh`/`repos.sh` are extended, not duplicated. Every module is sourced (functions, no side effects at load) so it is unit-testable with `bats`. The archive is a **plaintext** `tar.zst` (encryption declined by the user — media is hand-carried); the pack/unpack pipeline checks every stage's exit status so a partial failure never reports success.
 
-**Tech Stack:** bash, `tar`+`zstd`, `age` (encryption), `jq` (manifest/JSON edits), `git`, `nvm`/Node, `bun`, `npm` (`@mimo-ai/plugin`), `curl` (claude-mem test), `bats-core` (tests), `shellcheck` (lint).
+**Tech Stack:** bash, `tar`+`zstd` (plaintext archive), `jq` (manifest/JSON edits), `git`, `nvm`/Node, `bun`, `npm` (`@mimo-ai/plugin`), `curl` (claude-mem test), `bats-core` (tests), `shellcheck` (lint).
 
 ## Global Constraints
 
@@ -16,7 +16,7 @@
 - claude-mem: URL `https://163.176.168.207:443`; reuse API key + `project_id` from backup; CA cert `caddy-root.crt`; **never** mint keys, SSH to the server, or change firewalls.
 - claude-mem corpus/path remap: `git` → `repo`.
 - Nothing is pushed to any git remote without explicit interactive approval (Phase 0).
-- Secrets (`~/.ssh`, API key, `~/.claude.json`) live only inside the encrypted archive; never echoed, never committed.
+- The archive is plaintext (no encryption, per the user's decision). Secrets (`~/.ssh`, API key, `~/.claude.json`) travel inside it; they must never be echoed to logs and never committed to git. The archive file itself is a secret while it exists.
 - Every module file has one responsibility; keep files focused and small.
 - Commit message trailer for all commits in this plan:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
@@ -35,7 +35,7 @@ dotfiles/
     common.sh               # NEW  log/die/confirm helpers, strict mode
     manifest.sh             # NEW  build/read manifest.json
     git_safety.sh           # NEW  Phase 0 report + interactive commit/push
-    archive.sh              # NEW  tar+zstd+age pack/unpack (injectable crypto)
+    archive.sh              # NEW  tar+zstd plaintext pack/unpack (pipeline-failure detection)
     remap.sh                # NEW  ~/git -> ~/repo path remap across configs
     claude_mem.sh           # NEW  restore config + connectivity test
     mimo.sh                 # NEW  reinstall @mimo-ai/plugin + customizations
@@ -427,7 +427,7 @@ git commit -m "feat(migration): add git safety report and interactive commit/pus
 
 ---
 
-### Task 4: `lib/archive.sh` — pack/unpack with injectable crypto
+### Task 4: `lib/archive.sh` — plaintext pack/unpack with pipeline-failure detection
 
 **Files:**
 - Create: `lib/archive.sh`
@@ -436,12 +436,10 @@ git commit -m "feat(migration): add git safety report and interactive commit/pus
 **Interfaces:**
 - Consumes: `lib/common.sh`.
 - Produces:
-  - `archive_pack SRC_LIST_FILE OUT_PATH` — reads newline-separated paths (relative to `$HOME`) from `SRC_LIST_FILE`, creates `tar | zstd`, then encrypts with age.
-  - `archive_unpack IN_PATH DEST_HOME` — decrypts, `zstd -d`, `tar -x` into `DEST_HOME`.
-  - `archive_list IN_PATH` — decrypts and lists entries (no extraction).
-  - Crypto seam: if `CLAUDE_BACKUP_AGE_IDENTITY` is set (a file path), tests/CI use
-    `age -R <recipient>` / `age -d -i <identity>`; otherwise production uses `age -p` / `age -d`
-    (interactive passphrase, never stored).
+  - `archive_pack SRC_LIST_FILE OUT_PATH` — reads newline-separated paths (relative to `$HOME`) from `SRC_LIST_FILE`, creates a plaintext `tar | zstd` archive; `die`s if any pipeline stage fails.
+  - `archive_unpack IN_PATH DEST_HOME` — `zstd -d | tar -x` into `DEST_HOME`; `die`s if any stage fails.
+  - `archive_list IN_PATH` — lists entries (no extraction).
+- No encryption: the archive is a plaintext `tar.zst` (encryption declined by the user; media is hand-carried). Every pipeline uses `PIPESTATUS` so a partial/failed run never reports success.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -451,10 +449,6 @@ load test_helper
 setup() { setup_sandbox
           source "$REPO_ROOT_DIR/lib/common.sh"
           source "$REPO_ROOT_DIR/lib/archive.sh"
-          # generate a throwaway age keypair for the crypto seam
-          age-keygen -o "$HOME/id.age" 2>"$HOME/pub.txt"
-          export CLAUDE_BACKUP_AGE_IDENTITY="$HOME/id.age"
-          export CLAUDE_BACKUP_AGE_RECIPIENT="$(grep -o 'age1[0-9a-z]*' "$HOME/pub.txt")"
           mkdir -p "$HOME/.claude" "$HOME/git/proj"
           echo settings > "$HOME/.claude/s.json"
           echo code     > "$HOME/git/proj/main.c"
@@ -462,70 +456,70 @@ setup() { setup_sandbox
 teardown() { teardown_sandbox; }
 
 @test "pack then list shows archived paths" {
-  archive_pack "$HOME/list.txt" "$HOME/out.age"
-  [ -f "$HOME/out.age" ]
-  run archive_list "$HOME/out.age"
+  archive_pack "$HOME/list.txt" "$HOME/out.tar.zst"
+  [ -f "$HOME/out.tar.zst" ]
+  run archive_list "$HOME/out.tar.zst"
   [[ "$output" == *".claude/s.json"* ]]
   [[ "$output" == *"git/proj/main.c"* ]]
 }
 @test "unpack restores file contents into a new home" {
-  archive_pack "$HOME/list.txt" "$HOME/out.age"
+  archive_pack "$HOME/list.txt" "$HOME/out.tar.zst"
   mkdir -p "$HOME/dest"
-  archive_unpack "$HOME/out.age" "$HOME/dest"
+  archive_unpack "$HOME/out.tar.zst" "$HOME/dest"
   [ "$(cat "$HOME/dest/git/proj/main.c")" = "code" ]
+}
+@test "pack fails when a listed source path is missing" {
+  printf '.claude\nnope-missing\n' > "$HOME/bad.txt"
+  run archive_pack "$HOME/bad.txt" "$HOME/out.tar.zst"
+  [ "$status" -ne 0 ]
+}
+@test "unpack fails on a corrupt archive" {
+  echo "not a zst stream" > "$HOME/corrupt.tar.zst"
+  mkdir -p "$HOME/dest"
+  run archive_unpack "$HOME/corrupt.tar.zst" "$HOME/dest"
+  [ "$status" -ne 0 ]
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bats tests/archive.bats`
-Expected: FAIL — module missing. (Requires `age`/`age-keygen`; installed via Task 1 Step 5.)
+Expected: FAIL — module missing.
 
 - [ ] **Step 3: Write minimal implementation**
 
 `lib/archive.sh`:
 ```bash
 #!/usr/bin/env bash
-# Encrypted archive pack/unpack. Needs common.sh. Requires tar, zstd, age.
-
-_age_encrypt() {  # stdin -> stdout
-  if [ -n "${CLAUDE_BACKUP_AGE_RECIPIENT:-}" ]; then
-    age -r "$CLAUDE_BACKUP_AGE_RECIPIENT"
-  else
-    age -p
-  fi
-}
-_age_decrypt() {  # stdin -> stdout
-  if [ -n "${CLAUDE_BACKUP_AGE_IDENTITY:-}" ]; then
-    age -d -i "$CLAUDE_BACKUP_AGE_IDENTITY"
-  else
-    age -d
-  fi
-}
+# Plaintext archive pack/unpack. Needs common.sh. Requires tar, zstd.
 
 archive_pack() {
   local list="$1" out="$2"
-  require_cmd tar zstd age
+  require_cmd tar zstd
   # -C $HOME so archived paths are relative to home; --files-from for the include list.
-  tar -C "$HOME" -cf - --files-from="$list" \
-    | zstd -q -19 -T0 \
-    | _age_encrypt > "$out"
+  tar -C "$HOME" -cf - --files-from="$list" | zstd -q -19 -T0 > "$out"
+  local st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" -eq 0 ] || die "tar failed (${st[0]})"
+  [ "${st[1]}" -eq 0 ] || die "zstd failed (${st[1]})"
   [ -s "$out" ] || die "archive is empty: $out"
   log "archive written: $out"
 }
 
 archive_unpack() {
   local in="$1" dest="$2"
-  require_cmd tar zstd age
+  require_cmd tar zstd
   mkdir -p "$dest"
-  _age_decrypt < "$in" | zstd -d -q | tar -C "$dest" -xf -
+  zstd -d -q < "$in" | tar -C "$dest" -xf -
+  local st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" -eq 0 ] || die "zstd decompress failed (${st[0]})"
+  [ "${st[1]}" -eq 0 ] || die "tar extract failed (${st[1]})"
   log "archive extracted into: $dest"
 }
 
 archive_list() {
   local in="$1"
-  require_cmd tar zstd age
-  _age_decrypt < "$in" | zstd -d -q | tar -tf -
+  require_cmd tar zstd
+  zstd -d -q < "$in" | tar -tf -
 }
 ```
 
@@ -538,7 +532,7 @@ Expected: PASS.
 
 ```bash
 git add lib/archive.sh tests/archive.bats
-git commit -m "feat(migration): add encrypted tar/zstd/age archive module"
+git commit -m "feat(migration): add plaintext tar/zstd archive module"
 ```
 
 ---
@@ -984,13 +978,13 @@ git commit -m "feat(migration): add idempotent runtime installers to packages.sh
 **Interfaces:**
 - Consumes: `lib/common.sh`, `lib/manifest.sh`, `lib/git_safety.sh`, `lib/archive.sh`.
 - Produces: an executable `backup.sh` that runs Phase 0 (report + optional interactive
-  commit/push), builds the manifest, assembles the include list, and writes the encrypted archive.
+  commit/push), builds the manifest, assembles the include list, and writes the plaintext archive.
 
 - [ ] **Step 1: Write `backup.sh`**
 
 ```bash
 #!/usr/bin/env bash
-# Back up the lupontes dev environment into one encrypted archive.
+# Back up the lupontes dev environment into one plaintext archive.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/common.sh
@@ -999,9 +993,9 @@ source "$HERE/lib/manifest.sh"
 source "$HERE/lib/git_safety.sh"
 source "$HERE/lib/archive.sh"
 
-require_cmd tar zstd age jq git
+require_cmd tar zstd jq git
 GIT_ROOT="${GIT_ROOT:-$HOME/git}"
-OUT="${1:-$HOME/dev-env-backup-$(date +%Y%m%d).tar.zst.age}"
+OUT="${1:-$HOME/dev-env-backup-$(date +%Y%m%d).tar.zst}"
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 
 log "Phase 0: git safety"
@@ -1021,7 +1015,7 @@ for p in git .claude .claude.json .claude-mem .mimocode .gitconfig .ssh \
   [ -e "$HOME/$p" ] && echo "$p" >> "$LIST"
 done
 
-log "Writing encrypted archive (you will be prompted for a passphrase)"
+log "Writing archive"
 archive_pack "$LIST" "$OUT"
 
 log "Verifying archive integrity"
@@ -1030,20 +1024,18 @@ archive_list "$OUT" | grep -q '^git/'      || die "archive missing git projects"
 log "Backup complete: $OUT"
 ```
 
-- [ ] **Step 2: Lint + smoke test with the crypto seam**
+- [ ] **Step 2: Lint + smoke test**
 
 Run:
 ```bash
 chmod +x backup.sh
 shellcheck backup.sh
-# smoke: use a keypair seam and an empty temp HOME to avoid the passphrase prompt
-TMPH=$(mktemp -d); age-keygen -o "$TMPH/id" 2>"$TMPH/pub"
+# smoke: an isolated temp HOME with a couple of files; answer "n" to the interactive prompt
+TMPH=$(mktemp -d)
 HOME="$TMPH" GIT_ROOT="$TMPH/git" \
-  CLAUDE_BACKUP_AGE_IDENTITY="$TMPH/id" \
-  CLAUDE_BACKUP_AGE_RECIPIENT="$(grep -o 'age1[0-9a-z]*' "$TMPH/pub")" \
-  bash -c 'mkdir -p "$HOME/.claude" "$HOME/git/p"; echo x > "$HOME/.claude/s"; echo y > "$HOME/git/p/f"; printf "n\n" | '"$PWD"'/backup.sh "$HOME/out.age"'
+  bash -c 'mkdir -p "$HOME/.claude" "$HOME/git/p"; echo x > "$HOME/.claude/s"; echo y > "$HOME/git/p/f"; printf "n\n" | '"$PWD"'/backup.sh "$HOME/out.tar.zst"'
 ```
-Expected: prints "Backup complete"; `out.age` exists.
+Expected: prints "Backup complete"; `out.tar.zst` exists.
 
 - [ ] **Step 3: Commit**
 
@@ -1145,16 +1137,16 @@ done
 # shellcheck source=/dev/null
 source "$HERE/packages.sh"   # provides ensure_* installers (guarded, no side effects)
 
-ARCHIVE="${1:?usage: restore.sh <archive.tar.zst.age>}"
+ARCHIVE="${1:?usage: restore.sh <archive.tar.zst>}"
 GIT_SRC="$HOME/git"; GIT_DST="${REPO_ROOT:-$HOME/repo}"
 
 log "1/8 apt prerequisites"; sudo apt-get update -y
-sudo apt-get install -y build-essential git curl ca-certificates age zstd jq
+sudo apt-get install -y build-essential git curl ca-certificates zstd jq
 
 log "2/8 runtimes"
 ensure_node; ensure_bun; ensure_java; ensure_dotnet; ensure_claude_cli
 
-log "3/8 extract archive (passphrase prompt)"; archive_unpack "$ARCHIVE" "$HOME"
+log "3/8 extract archive"; archive_unpack "$ARCHIVE" "$HOME"
 
 log "4/8 projects -> $GIT_DST"
 [ -d "$HOME/git" ] && [ ! -d "$GIT_DST" ] && mv "$HOME/git" "$GIT_DST"
@@ -1218,7 +1210,7 @@ Add a "Migration" section:
 ## Migration to a new machine
 
 1. On the OLD machine: `./backup.sh` — reviews git state (commit/push with your
-   approval), then writes `~/dev-env-backup-YYYYMMDD.tar.zst.age` (asks for a passphrase).
+   approval), then writes `~/dev-env-backup-YYYYMMDD.tar.zst` (plaintext — treat as secret).
 2. Copy the archive to the NEW Ubuntu Desktop.
 3. On the NEW machine: clone this repo, then `./restore.sh <archive>` — installs
    prerequisites/runtimes, restores projects to `~/repo`, remaps paths, reconnects
@@ -1251,7 +1243,7 @@ git commit -m "docs(migration): document backup and restore usage"
 
 **Placeholder scan:** no TBD/TODO; every code step has complete code; test steps have real assertions.
 
-**Type consistency:** function names are consistent across tasks (`manifest_get`, `git_needs_action`, `git_scan_root`, `archive_pack`/`unpack`/`list`, `remap_json_paths`, `remap_claude_mem`, `claude_mem_test`, `mimo_reinstall`/`mimo_verify`, `verify_add`/`verify_report`/`verify_reset`). Injection env vars are consistent (`CLAUDE_BACKUP_AGE_*`, `CLAUDE_MEM_CURL`, `MIMO_NPM`, `MIMO_STAGE`).
+**Type consistency:** function names are consistent across tasks (`manifest_get`, `git_needs_action`, `git_scan_root`, `archive_pack`/`unpack`/`list`, `remap_json_paths`, `remap_claude_mem`, `claude_mem_test`, `mimo_reinstall`/`mimo_verify`, `verify_add`/`verify_report`/`verify_reset`). Injection env vars are consistent (`CLAUDE_MEM_CURL`, `MIMO_NPM`, `MIMO_STAGE`).
 
 **Known real-world caveats (not gaps):**
 - `restore.sh` Task 11 Step 5 relies on `packages.sh` being safe to `source` (functions only). If `packages.sh` runs installs at load, guard its body with `[ "${BASH_SOURCE[0]}" = "$0" ]` before sourcing — fold this guard into Task 9.

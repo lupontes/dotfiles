@@ -22,8 +22,13 @@ all projects, Claude Code and its plugins/config, the claude-mem remote connecti
 - **Git safety:** interactive, repo-by-repo review. Nothing is pushed to any remote
   without explicit per-repo approval. Company remotes (`git.embrapa.io`,
   `git-cnpmf.nuvem.ti.embrapa.br`) are treated with extra care.
-- **Transport:** a single encrypted archive (`age` + strong passphrase) containing
-  everything, secrets included. Moved to the new machine by the user (USB/scp).
+- **Transport:** a single **plaintext** archive (`tar.zst`) containing everything,
+  secrets included. Moved to the new machine by the user (USB/scp). Encryption was
+  considered and **declined by the user** (2026-07-15): the media is hand-carried by
+  the owner with no third party in the path. Accepted residual risk: the archive holds
+  SSH private keys, the claude-mem API key, and tokens in cleartext, so it must be
+  treated as a secret while it exists — securely wipe the transfer media and delete the
+  residual archive on both machines after a verified restore.
 - **claude-mem remote:** simplest, fully automated path — reuse the existing API key
   and `project_id` from the backup, keep URL on port **443** (bypasses the corporate
   firewall), install the Caddy CA cert. **No new key minting, no SSH to the server,
@@ -110,7 +115,7 @@ A guided routine, repo by repo, over `~/git`:
 
 ### Phase 1 — `backup.sh` (source machine)
 
-Produces one encrypted archive `dev-env-backup-YYYYMMDD.tar.zst.age`. Contents:
+Produces one plaintext archive `dev-env-backup-YYYYMMDD.tar.zst`. Contents:
 
 - **Projects:** entire `~/git` working trees, including untracked/ignored files,
   `.env`, local-only branches, and the non-git `brain`. (Belt-and-suspenders on top
@@ -119,21 +124,22 @@ Produces one encrypted archive `dev-env-backup-YYYYMMDD.tar.zst.age`. Contents:
   `caddy-root.crt`), `~/.claude.json`, `~/.claude-mem/` (db, chroma, corpora,
   settings — preserves memory).
 - **Mimo Code:** `~/.mimocode/` (incl. `command/`, `skills/`, package files).
-- **Toolchain configs:** `~/.gitconfig`, `~/.ssh/` (keys — the reason the archive is
-  encrypted), `~/.m2/settings.xml` if present, node/bun/java/dotnet version pins,
+- **Toolchain configs:** `~/.gitconfig`, `~/.ssh/` (private keys — treat the archive
+  as secret), `~/.m2/settings.xml` if present, node/bun/java/dotnet version pins,
   relevant `~/.config` subset.
 - **`manifest.json`:** source paths, tool versions, the `~/git`→`~/repo` remap rule,
   claude-mem `project_id` + URL(443) + corpus→corpus remap (`git`→`repo`), and the
   list of relevant apt/snap packages.
 
-Encryption with `age` (passphrase). Archive integrity is verified after creation.
+No encryption (per the user's decision above). Archive integrity is verified after
+creation, and the pack/unpack pipeline fails loudly if any stage errors.
 
 ### Phase 2 — `restore.sh` (fresh Ubuntu Desktop; idempotent)
 
 1. **Apt prerequisites:** build-essential, git, curl, ca-certificates, age, zstd, jq.
 2. **Runtimes (from manifest):** nvm + Node (same major), bun, Java (for `~/.m2`
    projects), .NET (if projects need it).
-3. **Decrypt + extract** the archive (prompt for passphrase).
+3. **Extract** the archive.
 4. **Projects → `~/repo`** (remapped from `~/git`).
 5. **Claude Code:** install the CLI, restore `~/.claude` + `~/.claude.json`, install
    plugins (superpowers, claude-mem) and MCP servers. **Remap `~/git`→`~/repo`**
