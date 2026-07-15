@@ -15,6 +15,8 @@
 - All code, identifiers, and comments in **English**. Commit messages: Conventional Commits, imperative, lowercase, no trailing period.
 - claude-mem: URL `https://163.176.168.207:443`; reuse API key + `project_id` from backup; CA cert `caddy-root.crt`; **never** mint keys, SSH to the server, or change firewalls.
 - claude-mem corpus/path remap: `git` → `repo`.
+- Programs come from official sources only — never from the source machine's installed binaries. The backup carries config/data/projects, NOT installed program trees. Excluded from the backup: `.claude/plugins/{cache,marketplaces}`, `.claude/plugins/plugin-catalog-cache.json`, `.mimocode/node_modules`, `.mimocode/package-lock.json`, `.nvm`, `.bun`, `.dotnet`. Kept as the reinstall manifest: `.claude/plugins/{installed_plugins.json,known_marketplaces.json,data/}`.
+- Plugins are reinstalled from their GitHub marketplaces via `claude plugin marketplace add <owner/repo>` then `claude plugin install <name>@<marketplace>`.
 - Nothing is pushed to any git remote without explicit interactive approval (Phase 0).
 - The archive is plaintext (no encryption, per the user's decision). Secrets (`~/.ssh`, API key, `~/.claude.json`) travel inside it; they must never be echoed to logs and never committed to git. The archive file itself is a secret while it exists.
 - Every module file has one responsibility; keep files focused and small.
@@ -38,6 +40,7 @@ dotfiles/
     archive.sh              # NEW  tar+zstd plaintext pack/unpack (pipeline-failure detection)
     remap.sh                # NEW  ~/git -> ~/repo path remap across configs
     claude_mem.sh           # NEW  restore config + connectivity test
+    plugins.sh              # NEW  reinstall Claude Code plugins from GitHub marketplaces
     mimo.sh                 # NEW  reinstall @mimo-ai/plugin + customizations
     verify.sh               # NEW  final verification report
   tests/
@@ -48,6 +51,7 @@ dotfiles/
     archive.bats
     remap.bats
     claude_mem.bats
+    plugins.bats
     mimo.bats
     verify.bats
 ```
@@ -436,7 +440,7 @@ git commit -m "feat(migration): add git safety report and interactive commit/pus
 **Interfaces:**
 - Consumes: `lib/common.sh`.
 - Produces:
-  - `archive_pack SRC_LIST_FILE OUT_PATH` — reads newline-separated paths (relative to `$HOME`) from `SRC_LIST_FILE`, creates a plaintext `tar | zstd` archive; `die`s if any pipeline stage fails.
+  - `archive_pack SRC_LIST_FILE OUT_PATH` — reads newline-separated paths (relative to `$HOME`) from `SRC_LIST_FILE`, creates a plaintext `tar | zstd` archive; `die`s if any pipeline stage fails. Honors optional env `ARCHIVE_EXCLUDE_FILE` (a file of tar `--exclude-from` patterns) so installed program trees can be omitted.
   - `archive_unpack IN_PATH DEST_HOME` — `zstd -d | tar -x` into `DEST_HOME`; `die`s if any stage fails.
   - `archive_list IN_PATH` — lists entries (no extraction).
 - No encryption: the archive is a plaintext `tar.zst` (encryption declined by the user; media is hand-carried). Every pipeline uses `PIPESTATUS` so a partial/failed run never reports success.
@@ -479,6 +483,15 @@ teardown() { teardown_sandbox; }
   run archive_unpack "$HOME/corrupt.tar.zst" "$HOME/dest"
   [ "$status" -ne 0 ]
 }
+@test "ARCHIVE_EXCLUDE_FILE omits matched paths" {
+  mkdir -p "$HOME/git/proj/node_modules"
+  echo junk > "$HOME/git/proj/node_modules/x.js"
+  printf '*/node_modules/*\n' > "$HOME/excl.txt"
+  ARCHIVE_EXCLUDE_FILE="$HOME/excl.txt" archive_pack "$HOME/list.txt" "$HOME/out.tar.zst"
+  run archive_list "$HOME/out.tar.zst"
+  [[ "$output" == *"git/proj/main.c"* ]]
+  [[ "$output" != *"node_modules"* ]]
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -496,8 +509,11 @@ Expected: FAIL — module missing.
 archive_pack() {
   local list="$1" out="$2"
   require_cmd tar zstd
+  # Optional exclude patterns (installed program trees) via ARCHIVE_EXCLUDE_FILE.
+  local exargs=()
+  [ -n "${ARCHIVE_EXCLUDE_FILE:-}" ] && exargs=(--exclude-from="$ARCHIVE_EXCLUDE_FILE")
   # -C $HOME so archived paths are relative to home; --files-from for the include list.
-  tar -C "$HOME" -cf - --files-from="$list" | zstd -q -19 -T0 > "$out"
+  tar -C "$HOME" "${exargs[@]}" -cf - --files-from="$list" | zstd -q -19 -T0 > "$out"
   local st=("${PIPESTATUS[@]}")
   [ "${st[0]}" -eq 0 ] || die "tar failed (${st[0]})"
   [ "${st[1]}" -eq 0 ] || die "zstd failed (${st[1]})"
@@ -970,6 +986,116 @@ git commit -m "feat(migration): add idempotent runtime installers to packages.sh
 
 ---
 
+### Task 9b: `lib/plugins.sh` — reinstall Claude Code plugins from official marketplaces
+
+**Files:**
+- Create: `lib/plugins.sh`
+- Create: `tests/plugins.bats`
+
+**Interfaces:**
+- Consumes: `lib/common.sh`.
+- Produces:
+  - `plugins_reinstall MANIFEST_DIR` — reads `MANIFEST_DIR/known_marketplaces.json` and
+    `MANIFEST_DIR/installed_plugins.json` (the small manifests kept in the backup), then for
+    each marketplace runs `claude plugin marketplace add <owner/repo>` and for each plugin
+    runs `claude plugin install <name>@<marketplace>`. The `claude` binary is injectable via
+    `CLAUDE_BIN` for tests. Missing manifests → warn and return 0 (nothing to reinstall).
+
+- [ ] **Step 1: Write the failing test**
+
+`tests/plugins.bats`:
+```bash
+load test_helper
+setup()    { setup_sandbox
+             source "$REPO_ROOT_DIR/lib/common.sh"
+             source "$REPO_ROOT_DIR/lib/plugins.sh"
+             mkdir -p "$HOME/man"
+             cat > "$HOME/man/known_marketplaces.json" <<'JSON'
+{ "claude-plugins-official": { "source": { "source": "github", "repo": "anthropics/claude-plugins-official" } },
+  "thedotmack": { "source": { "source": "github", "repo": "thedotmack/claude-mem" } } }
+JSON
+             cat > "$HOME/man/installed_plugins.json" <<'JSON'
+{ "version": 2, "plugins": {
+  "superpowers@claude-plugins-official": [ { "version": "6.1.1" } ],
+  "claude-mem@thedotmack": [ { "version": "13.11.0" } ] } }
+JSON
+             cat > "$HOME/fakeclaude" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_LOG"
+SH
+             chmod +x "$HOME/fakeclaude"
+             export CLAUDE_BIN="$HOME/fakeclaude"
+             export FAKE_LOG="$HOME/claude.log"; }
+teardown() { teardown_sandbox; }
+
+@test "adds each marketplace from its github repo" {
+  plugins_reinstall "$HOME/man"
+  run cat "$HOME/claude.log"
+  [[ "$output" == *"plugin marketplace add anthropics/claude-plugins-official"* ]]
+  [[ "$output" == *"plugin marketplace add thedotmack/claude-mem"* ]]
+}
+@test "installs each plugin by name@marketplace" {
+  plugins_reinstall "$HOME/man"
+  run cat "$HOME/claude.log"
+  [[ "$output" == *"plugin install superpowers@claude-plugins-official"* ]]
+  [[ "$output" == *"plugin install claude-mem@thedotmack"* ]]
+}
+@test "missing manifest returns 0 without calling claude" {
+  rm -f "$HOME/man/installed_plugins.json"
+  run plugins_reinstall "$HOME/man"
+  [ "$status" -eq 0 ]
+  [ ! -f "$HOME/claude.log" ]
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bats tests/plugins.bats`
+Expected: FAIL — module missing.
+
+- [ ] **Step 3: Write minimal implementation**
+
+`lib/plugins.sh`:
+```bash
+#!/usr/bin/env bash
+# Reinstall Claude Code plugins from their official GitHub marketplaces. Needs common.sh.
+
+plugins_reinstall() {
+  local dir="$1"
+  local claude_bin="${CLAUDE_BIN:-claude}"
+  local mk="$dir/known_marketplaces.json"
+  local ip="$dir/installed_plugins.json"
+  [ -f "$mk" ] || { warn "no known_marketplaces.json in $dir"; return 0; }
+  [ -f "$ip" ] || { warn "no installed_plugins.json in $dir"; return 0; }
+  local repo name
+  # Add each marketplace from its GitHub source repo (owner/repo).
+  while IFS= read -r repo; do
+    [ -n "$repo" ] || continue
+    "$claude_bin" plugin marketplace add "$repo" || warn "marketplace add failed: $repo"
+  done < <(jq -r '.[].source | select(.source=="github") | .repo // empty' "$mk")
+  # Install each plugin, keyed as name@marketplace.
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    "$claude_bin" plugin install "$name" || warn "plugin install failed: $name"
+  done < <(jq -r '.plugins | keys[]' "$ip")
+  log "plugins reinstalled from official marketplaces"
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `bats tests/plugins.bats && shellcheck lib/plugins.sh`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/plugins.sh tests/plugins.bats
+git commit -m "feat(migration): add plugin reinstall from official marketplaces"
+```
+
+---
+
 ### Task 10: `backup.sh` orchestrator
 
 **Files:**
@@ -1014,6 +1140,19 @@ for p in git .claude .claude.json .claude-mem .mimocode .gitconfig .ssh \
          .m2/settings.xml dotfiles .dev-env-manifest.json; do
   [ -e "$HOME/$p" ] && echo "$p" >> "$LIST"
 done
+
+# Exclude installed program trees — programs are reinstalled from official sources,
+# never carried over. Patterns are relative to $HOME (tar runs with -C $HOME).
+log "Assembling exclude list"
+EXCL="$STAGE/exclude.txt"
+cat > "$EXCL" <<'EOF'
+.claude/plugins/cache
+.claude/plugins/marketplaces
+.claude/plugins/plugin-catalog-cache.json
+.mimocode/node_modules
+.mimocode/package-lock.json
+EOF
+export ARCHIVE_EXCLUDE_FILE="$EXCL"
 
 log "Writing archive"
 archive_pack "$LIST" "$OUT"
@@ -1130,7 +1269,7 @@ Expected: PASS.
 # Restore the dev environment onto a fresh Ubuntu Desktop. Idempotent.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-for m in common manifest archive remap claude_mem mimo verify; do
+for m in common manifest archive remap claude_mem plugins mimo verify; do
   # shellcheck source=/dev/null
   source "$HERE/lib/$m.sh"
 done
@@ -1140,22 +1279,28 @@ source "$HERE/packages.sh"   # provides ensure_* installers (guarded, no side ef
 ARCHIVE="${1:?usage: restore.sh <archive.tar.zst>}"
 GIT_SRC="$HOME/git"; GIT_DST="${REPO_ROOT:-$HOME/repo}"
 
-log "1/8 apt prerequisites"; sudo apt-get update -y
+log "1/9 apt prerequisites"; sudo apt-get update -y
 sudo apt-get install -y build-essential git curl ca-certificates zstd jq
 
-log "2/8 runtimes"
+log "2/9 runtimes (from official sources)"
 ensure_node; ensure_bun; ensure_java; ensure_dotnet; ensure_claude_cli
+export PATH="$HOME/.local/bin:$PATH"   # claude CLI lands here
 
-log "3/8 extract archive"; archive_unpack "$ARCHIVE" "$HOME"
+log "3/9 extract archive"; archive_unpack "$ARCHIVE" "$HOME"
 
-log "4/8 projects -> $GIT_DST"
+log "4/9 projects -> $GIT_DST"
 [ -d "$HOME/git" ] && [ ! -d "$GIT_DST" ] && mv "$HOME/git" "$GIT_DST"
 
-log "5/8 remap paths git -> repo"
+log "5/9 remap paths git -> repo"
 remap_json_paths "$HOME/.claude.json" "$GIT_SRC" "$GIT_DST"
 remap_claude_mem "$GIT_SRC" "$GIT_DST"
 
-log "6/8 claude-mem CA + connectivity"
+log "6/9 reinstall claude code plugins (from official marketplaces)"
+plugins_reinstall "$HOME/.claude/plugins"
+command -v claude >/dev/null 2>&1 && "$HOME/.local/bin/claude" plugin list >/dev/null 2>&1 \
+  && verify_add "plugins" 0 || verify_add "plugins" 1
+
+log "7/9 claude-mem CA + connectivity"
 MAN="$HOME/.dev-env-manifest.json"
 URL=$(manifest_get "$MAN" '.claude_mem.url')
 PID=$(manifest_get "$MAN" '.claude_mem.project_id')
@@ -1166,11 +1311,11 @@ verify_reset
 if claude_mem_test "$URL" "$CERT" "$KEY"; then verify_add "claude-mem@443" 0
 else verify_add "claude-mem@443" 1; fi
 
-log "7/8 mimo code"
+log "8/9 mimo code (from npm)"
 MIMO_STAGE="$HOME/.mimocode" mimo_reinstall "0.1.4"
 mimo_verify && verify_add "mimo" 0 || verify_add "mimo" 1
 
-log "8/8 identity + perms"
+log "9/9 identity + perms"
 chmod 700 "$HOME/.ssh" 2>/dev/null || true
 find "$HOME/.ssh" -type f -name 'id_*' ! -name '*.pub' -exec chmod 600 {} \; 2>/dev/null || true
 command -v claude >/dev/null 2>&1 && verify_add "claude" 0 || verify_add "claude" 1
@@ -1232,9 +1377,10 @@ git commit -m "docs(migration): document backup and restore usage"
 - Git safety (Phase 0, repo-by-repo, no push without approval) → Task 3 + Task 10.
 - Encrypted single archive incl. secrets → Task 4 + Task 10.
 - Projects `~/git`→`~/repo` → Task 5 (repos.sh) + Task 6 (remap) + Task 11 (restore mv).
-- Claude Code prerequisites + CLI + plugins → Task 9 + Task 11 (extraction restores `~/.claude` plugins).
+- Claude Code prerequisites + CLI (official) + plugins reinstalled from official marketplaces → Task 9 (CLI) + Task 9b (`plugins_reinstall`) + Task 11 (step 6).
+- Programs from official sources only; installed trees excluded from backup → Task 4 (`ARCHIVE_EXCLUDE_FILE`) + Task 10 (exclude list) + Task 9/9b/8 (fresh installs).
 - claude-mem remote 443, reuse key/project_id, CA, tested, corpus remap → Task 6 + Task 7 + Task 11.
-- Mimo Code reinstall functional → Task 8 + Task 11.
+- Mimo Code reinstall functional (fresh npm install, node_modules excluded from backup) → Task 8 + Task 10 (exclude) + Task 11 (step 8).
 - Memory continuity (include `~/.claude-mem`) → Task 10 include list.
 - `brain` archive-only (non-git) → Task 10 include list (whole `git/` tree) + Task 3 skips non-git.
 - Manifest / project-id evaluation → Task 2 + Task 11 report.

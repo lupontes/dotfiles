@@ -40,6 +40,16 @@ all projects, Claude Code and its plugins/config, the claude-mem remote connecti
 - **Prerequisites:** the restore installs every prerequisite for Claude Code to be
   fully functional (runtimes, CLI, plugins, MCP servers) plus the toolchains the
   projects need (Java/Maven, .NET).
+- **Official sources only (user decision, 2026-07-15):** every *program* is installed
+  fresh from its official source on the destination — never copied from this machine's
+  installed binaries. This applies to runtimes (nvm/Node, bun, Java, .NET), the Claude
+  Code CLI, all Claude Code plugins (reinstalled from their GitHub marketplaces), and
+  the Mimo Code npm package. The backup therefore carries only **configuration, data,
+  and projects** — never installed program trees. Concretely excluded from the backup:
+  `~/.claude/plugins/{cache,marketplaces}` (~1.1 GB of installed plugin code) and its
+  `plugin-catalog-cache.json`, `~/.mimocode/node_modules` + `package-lock.json`, and the
+  runtime dirs (`~/.nvm`, `~/.bun`, `~/.dotnet`). What IS kept is the small reinstall
+  manifest: `~/.claude/plugins/{installed_plugins.json,known_marketplaces.json,data/}`.
 
 ## Source-machine facts (discovered)
 
@@ -120,10 +130,14 @@ Produces one plaintext archive `dev-env-backup-YYYYMMDD.tar.zst`. Contents:
 - **Projects:** entire `~/git` working trees, including untracked/ignored files,
   `.env`, local-only branches, and the non-git `brain`. (Belt-and-suspenders on top
   of the pushes from Phase 0.)
-- **Claude Code:** `~/.claude/` (settings.json, plugins, skills, agents,
-  `caddy-root.crt`), `~/.claude.json`, `~/.claude-mem/` (db, chroma, corpora,
-  settings — preserves memory).
-- **Mimo Code:** `~/.mimocode/` (incl. `command/`, `skills/`, package files).
+- **Claude Code:** `~/.claude/` **minus the installed plugin trees** — settings.json,
+  skills, agents, `caddy-root.crt`, and `plugins/{installed_plugins.json,
+  known_marketplaces.json,data/}` (the reinstall manifest); the ~1.1 GB
+  `plugins/{cache,marketplaces}` and `plugin-catalog-cache.json` are excluded.
+  Plus `~/.claude.json`, and `~/.claude-mem/` (db, chroma, corpora, settings —
+  preserves memory; this is data, not an installed program).
+- **Mimo Code:** `~/.mimocode/` config only — `command/`, `skills/`, `package.json`;
+  `node_modules` and `package-lock.json` are excluded (reinstalled from npm).
 - **Toolchain configs:** `~/.gitconfig`, `~/.ssh/` (private keys — treat the archive
   as secret), `~/.m2/settings.xml` if present, node/bun/java/dotnet version pins,
   relevant `~/.config` subset.
@@ -141,10 +155,13 @@ creation, and the pack/unpack pipeline fails loudly if any stage errors.
    projects), .NET (if projects need it).
 3. **Extract** the archive.
 4. **Projects → `~/repo`** (remapped from `~/git`).
-5. **Claude Code:** install the CLI, restore `~/.claude` + `~/.claude.json`, install
-   plugins (superpowers, claude-mem) and MCP servers. **Remap `~/git`→`~/repo`**
-   everywhere: `~/.claude.json` project keys, settings paths, and the claude-mem
-   cwd remap.
+5. **Claude Code:** install the CLI from its official installer, restore `~/.claude`
+   config + `~/.claude.json`, then **reinstall all plugins from their official GitHub
+   marketplaces** driven by the restored `installed_plugins.json` /
+   `known_marketplaces.json` (`claude plugin marketplace add <owner/repo>` +
+   `claude plugin install <name>@<marketplace>` for each — superpowers, claude-mem,
+   handoff, headroom). **Remap `~/git`→`~/repo`** everywhere: `~/.claude.json` project
+   keys, settings paths, and the claude-mem cwd remap.
 6. **claude-mem remote:** restore `~/.claude-mem`; install `caddy-root.crt` into the
    system trust store (`update-ca-certificates`) and `NODE_EXTRA_CA_CERTS`; keep
    URL on **:443**; reuse the API key + `project_id` from the backup; remap the
