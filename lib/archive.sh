@@ -4,8 +4,11 @@
 archive_pack() {
   local list="$1" out="$2"
   require_cmd tar zstd
+  # Optional exclude patterns (installed program trees) via ARCHIVE_EXCLUDE_FILE.
+  local exargs=()
+  [ -n "${ARCHIVE_EXCLUDE_FILE:-}" ] && exargs=(--exclude-from="$ARCHIVE_EXCLUDE_FILE")
   # -C $HOME so archived paths are relative to home; --files-from for the include list.
-  tar -C "$HOME" -cf - --files-from="$list" | zstd -q -19 -T0 > "$out"
+  tar -C "$HOME" "${exargs[@]}" -cf - --files-from="$list" | zstd -q -19 -T0 > "$out"
   local st=("${PIPESTATUS[@]}")
   [ "${st[0]}" -eq 0 ] || die "tar failed (${st[0]})"
   [ "${st[1]}" -eq 0 ] || die "zstd failed (${st[1]})"

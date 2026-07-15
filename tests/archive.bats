@@ -32,3 +32,12 @@ teardown() { teardown_sandbox; }
   run archive_unpack "$HOME/corrupt.tar.zst" "$HOME/dest"
   [ "$status" -ne 0 ]
 }
+@test "ARCHIVE_EXCLUDE_FILE omits matched paths" {
+  mkdir -p "$HOME/git/proj/node_modules"
+  echo junk > "$HOME/git/proj/node_modules/x.js"
+  printf 'node_modules\n*/node_modules/*\n' > "$HOME/excl.txt"
+  ARCHIVE_EXCLUDE_FILE="$HOME/excl.txt" archive_pack "$HOME/list.txt" "$HOME/out.tar.zst"
+  run archive_list "$HOME/out.tar.zst"
+  [[ "$output" == *"git/proj/main.c"* ]]
+  [[ "$output" != *"node_modules"* ]]
+}
