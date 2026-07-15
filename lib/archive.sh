@@ -1,50 +1,31 @@
 #!/usr/bin/env bash
-# Encrypted archive pack/unpack. Needs common.sh. Requires tar, zstd, age.
-
-_age_encrypt() {  # stdin -> stdout
-  if [ -n "${CLAUDE_BACKUP_AGE_RECIPIENT:-}" ]; then
-    age -r "$CLAUDE_BACKUP_AGE_RECIPIENT"
-  else
-    age -p
-  fi
-}
-_age_decrypt() {  # stdin -> stdout
-  if [ -n "${CLAUDE_BACKUP_AGE_IDENTITY:-}" ]; then
-    age -d -i "$CLAUDE_BACKUP_AGE_IDENTITY"
-  else
-    age -d
-  fi
-}
+# Plaintext archive pack/unpack. Needs common.sh. Requires tar, zstd.
 
 archive_pack() {
   local list="$1" out="$2"
-  require_cmd tar zstd age
+  require_cmd tar zstd
   # -C $HOME so archived paths are relative to home; --files-from for the include list.
-  tar -C "$HOME" -cf - --files-from="$list" \
-    | zstd -q -19 -T0 \
-    | _age_encrypt > "$out"
+  tar -C "$HOME" -cf - --files-from="$list" | zstd -q -19 -T0 > "$out"
   local st=("${PIPESTATUS[@]}")
-  [ "${st[0]}" -eq 0 ] || die "archive pack failed: tar exited ${st[0]}"
-  [ "${st[1]}" -eq 0 ] || die "archive pack failed: zstd exited ${st[1]}"
-  [ "${st[2]}" -eq 0 ] || die "archive pack failed: age exited ${st[2]}"
+  [ "${st[0]}" -eq 0 ] || die "tar failed (${st[0]})"
+  [ "${st[1]}" -eq 0 ] || die "zstd failed (${st[1]})"
   [ -s "$out" ] || die "archive is empty: $out"
   log "archive written: $out"
 }
 
 archive_unpack() {
   local in="$1" dest="$2"
-  require_cmd tar zstd age
+  require_cmd tar zstd
   mkdir -p "$dest"
-  _age_decrypt < "$in" | zstd -d -q | tar -C "$dest" -xf -
+  zstd -d -q < "$in" | tar -C "$dest" -xf -
   local st=("${PIPESTATUS[@]}")
-  [ "${st[0]}" -eq 0 ] || die "archive unpack failed: age exited ${st[0]}"
-  [ "${st[1]}" -eq 0 ] || die "archive unpack failed: zstd exited ${st[1]}"
-  [ "${st[2]}" -eq 0 ] || die "archive unpack failed: tar exited ${st[2]}"
+  [ "${st[0]}" -eq 0 ] || die "zstd decompress failed (${st[0]})"
+  [ "${st[1]}" -eq 0 ] || die "tar extract failed (${st[1]})"
   log "archive extracted into: $dest"
 }
 
 archive_list() {
   local in="$1"
-  require_cmd tar zstd age
-  _age_decrypt < "$in" | zstd -d -q | tar -tf -
+  require_cmd tar zstd
+  zstd -d -q < "$in" | tar -tf -
 }
