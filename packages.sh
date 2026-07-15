@@ -10,13 +10,21 @@ log() { echo -e "\n>>> $*"; }
 # --- APT base packages ---
 log "APT: base + dev packages"
 sudo apt-get update -y
-sudo apt-get install -y \
-  curl wget gzip zip unzip ca-certificates gnupg lsb-release \
-  git \
-  openjdk-17-jdk \
-  maven \
-  postgresql postgresql-contrib \
+
+# Define apt packages array
+apt_pkgs=(
+  curl wget gzip zip unzip ca-certificates gnupg lsb-release
+  git
+  openjdk-17-jdk
+  maven
+  postgresql postgresql-contrib
   flatpak
+)
+
+# Migration tooling prerequisites
+apt_pkgs+=(age zstd jq bats shellcheck)
+
+sudo apt-get install -y "${apt_pkgs[@]}"
 
 # --- GitHub CLI (gh) from official repo ---
 if ! command -v gh >/dev/null 2>&1; then
