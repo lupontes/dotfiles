@@ -36,3 +36,6 @@ These are personal preferences that apply to every project I work on.
   fix(api): handle null response from camunda client
   test(user): add unit tests for password validation
   ```
+# graphify
+- **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
