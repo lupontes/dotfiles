@@ -24,7 +24,7 @@ The whole script is **idempotent** — safe to re-run.
 dotfiles/
 ├── install.sh                 ← orchestrator (packages → configs → repos)
 ├── packages.sh                ← system + dev tool installs
-├── repos.sh                   ← clones project repos into ~/git
+├── repos.sh                   ← clones project repos into REPO_ROOT (~/repos)
 ├── claude/
 │   ├── CLAUDE.md              ← global preferences (symlinked)
 │   └── settings.template.json ← Claude settings; token/home are placeholders
@@ -59,7 +59,7 @@ dotfiles/
 
 ## Project repos (`repos.sh`)
 
-Cloned into `~/git`:
+Cloned into `REPO_ROOT` (default `~/repos`, override with the `REPO_ROOT` env var):
 
 - **GitHub (token auth):** `tip` (+submodules tip-api/tip-web/tip-camunda), `projeto-publica`, `adubatec`
 - **Embrapa internal (separate credentials):** `api`, `camunda`, `web`, `prototipo-tip-cti`
@@ -71,6 +71,28 @@ Cloned into `~/git`:
 SKIP_PACKAGES=1 bash install.sh   # configs + repos only
 SKIP_REPOS=1     bash install.sh   # packages + configs only
 ```
+
+## Migration to a new machine
+
+1. On the OLD machine: `./backup.sh` — reviews git state for every repo under
+   `~/git` and offers to commit/push each one with your approval, then writes
+   `~/dev-env-backup-YYYYMMDD.tar.zst`. This archive is **plaintext** (SSH keys +
+   API tokens in cleartext) — treat it as a secret: hand-carry it, never upload it,
+   and securely delete it after a successful restore.
+2. Copy the archive to the NEW Ubuntu Desktop.
+3. On the NEW machine: install Claude Code manually first (`claude` must be on
+   `PATH`), clone this repo, then run `./restore.sh <archive>`. It extracts the
+   archive, moves projects into `~/repos` (`REPO_ROOT`, overridable), remaps
+   `~/.claude.json` and claude-mem config from `~/git` to `~/repos`, and reinstalls
+   Claude Code plugins from their official GitHub marketplaces (reading the
+   `installed_plugins.json` / `known_marketplaces.json` manifests carried in the
+   archive). It prints a final verification report.
+
+**Not automated yet** (manual follow-up, code already drafted in
+`docs/superpowers/plans/2026-07-15-dev-env-migration.md` if you want to wire it in
+later): reconnecting claude-mem (CA install + connectivity test), reinstalling Mimo
+Code, and installing runtimes (node/bun/java/dotnet) — `packages.sh` still covers
+the general package/tool bootstrap for a fully fresh machine.
 
 ## Secrets — NOT in this repo (restore manually)
 
