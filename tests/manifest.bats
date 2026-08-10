@@ -13,7 +13,7 @@ teardown() { teardown_sandbox; }
 
 @test "manifest_build emits valid json with the project remap" {
   manifest_build > "$HOME/m.json"
-  run jq -e '.projects_src=="git" and .projects_dst=="repo"' "$HOME/m.json"
+  run jq -e '.projects_src=="git" and .projects_dst=="repos"' "$HOME/m.json"
   [ "$status" -eq 0 ]
 }
 @test "manifest carries claude-mem url and project id from settings" {
@@ -21,9 +21,9 @@ teardown() { teardown_sandbox; }
   [ "$(manifest_get "$HOME/m.json" '.claude_mem.url')" = "https://163.176.168.207:443" ]
   [ "$(manifest_get "$HOME/m.json" '.claude_mem.project_id')" = "48e2759b-2cd3-4336-9601-3b3dce28b957" ]
 }
-@test "manifest corpus remap maps git to repo" {
+@test "manifest corpus remap maps git to repos" {
   manifest_build > "$HOME/m.json"
-  [ "$(manifest_get "$HOME/m.json" '.claude_mem.corpus_remap.git')" = "repo" ]
+  [ "$(manifest_get "$HOME/m.json" '.claude_mem.corpus_remap.git')" = "repos" ]
 }
 @test "_ver captures stderr output" {
   result=$(_ver bash -c 'echo v1.2 >&2')

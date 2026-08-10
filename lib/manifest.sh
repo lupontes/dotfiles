@@ -24,9 +24,9 @@ manifest_build() {
       created: $created,
       source_home: $home,
       projects_src: "git",
-      projects_dst: "repo",
+      projects_dst: "repos",
       versions: { node:$node, bun:$bun, java:$java, dotnet:$dotnet, npm:$npm },
-      claude_mem: { url:$url, project_id:$pid, corpus_remap: { "git":"repo" } },
+      claude_mem: { url:$url, project_id:$pid, corpus_remap: { "git":"repos" } },
       apt_packages: []
     }'
 }
