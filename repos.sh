@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Clones the project repositories into ~/git.
+# Clones the project repositories into REPO_ROOT (default ~/repos).
 # GitHub repos use $GITHUB_TOKEN; Embrapa-internal repos use plain https
 # (rely on the system credential helper / interactive auth — different hosts).
 set -e
 
-GIT_ROOT="$HOME/git"
+# Destination root for cloned projects (source machine used ~/git).
+REPO_ROOT="${REPO_ROOT:-$HOME/repos}"
+GIT_ROOT="$REPO_ROOT"
 mkdir -p "$GIT_ROOT"
 
 clone_github() {
