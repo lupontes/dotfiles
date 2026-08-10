@@ -69,7 +69,12 @@ git_safety_interactive() {
     log "== $name =="; git -C "$dir" status -s >&2; git -C "$dir" --no-pager diff --stat >&2
     if confirm "commit changes in $name?"; then
       printf 'Conventional Commit message: ' >&2; read -r msg
-      git -C "$dir" add -A && git -C "$dir" commit -qm "$msg"
+      git -C "$dir" add -A
+      if git -C "$dir" diff --cached --quiet; then
+        warn "nothing staged to commit in $name"
+      else
+        git -C "$dir" commit -qm "$msg"
+      fi
     fi
     if confirm "push $name to its remote?"; then
       if git -C "$dir" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then

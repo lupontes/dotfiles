@@ -41,3 +41,15 @@ mk_repo() { git init -q "$1"; ( cd "$1" && echo a > a.txt && git add a.txt \
   run git_scan_root "$HOME/root"
   [[ "$output" == *"plain	NOT_GIT"* ]]
 }
+@test "interactive commit on a no-upstream clean repo does not abort under set -e" {
+  mk_repo "$HOME/root/no-upstream"
+  run bash -c '
+    set -euo pipefail
+    source "'"$REPO_ROOT_DIR"'/lib/common.sh"
+    source "'"$REPO_ROOT_DIR"'/lib/git_safety.sh"
+    git_safety_interactive "'"$HOME"'/root" < <(printf "y\nsome msg\nn\n")
+    echo REACHED_END
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"REACHED_END"* ]]
+}
