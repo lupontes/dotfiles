@@ -78,9 +78,10 @@ git_safety_interactive() {
     fi
     if confirm "push $name to its remote?"; then
       if git -C "$dir" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
-        git -C "$dir" push
+        git -C "$dir" push || warn "push failed for $name (remote rejected or unreachable) — skipping, resolve manually"
       else
-        git -C "$dir" push -u origin "$(git -C "$dir" rev-parse --abbrev-ref HEAD)"
+        git -C "$dir" push -u origin "$(git -C "$dir" rev-parse --abbrev-ref HEAD)" \
+          || warn "push failed for $name (remote rejected or unreachable) — skipping, resolve manually"
       fi
     fi
   done

@@ -53,3 +53,24 @@ mk_repo() { git init -q "$1"; ( cd "$1" && echo a > a.txt && git add a.txt \
   [ "$status" -eq 0 ]
   [[ "$output" == *"REACHED_END"* ]]
 }
+@test "interactive push rejected by remote does not abort under set -e" {
+  # Two clones of the same bare remote, pushed out of order so the second push is rejected.
+  git init -q --bare "$HOME/remote.git"
+  git clone -q "$HOME/remote.git" "$HOME/root/rejected"
+  ( cd "$HOME/root/rejected" && echo a > a.txt && git add a.txt && git commit -qm init \
+    && git push -qu origin "$(git rev-parse --abbrev-ref HEAD)" )
+  git clone -q "$HOME/remote.git" "$HOME/other-clone"
+  ( cd "$HOME/other-clone" && echo b > b.txt && git add b.txt && git commit -qm second \
+    && git push -q )
+  ( cd "$HOME/root/rejected" && echo c >> a.txt )
+  run bash -c '
+    set -euo pipefail
+    source "'"$REPO_ROOT_DIR"'/lib/common.sh"
+    source "'"$REPO_ROOT_DIR"'/lib/git_safety.sh"
+    git_safety_interactive "'"$HOME"'/root" < <(printf "y\nsome msg\ny\n")
+    echo REACHED_END
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"push failed for rejected"* ]]
+  [[ "$output" == *"REACHED_END"* ]]
+}
