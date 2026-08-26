@@ -1,2 +1,4 @@
 # graphify build output — regenerated locally, never worth versioning
 graphify-out/
+
+**/.claude/settings.local.json
